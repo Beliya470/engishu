@@ -8,21 +8,24 @@ const { sendEmail } = require('../utils/email');
 const { generateRefNumber } = require('../utils/refNumber');
 const { sendConfirmationEmail } = require('../utils/confirmationEmail');
 const { authRateLimiter } = require('../middleware/security');
-
-// Multer setup for public motor document uploads
-const motorDocsStorage = multer.diskStorage({
-  destination: (req, file, cb) => {
-    const uploadDir = path.join(__dirname, '../../uploads');
-    if (!fs.existsSync(uploadDir)) fs.mkdirSync(uploadDir, { recursive: true });
-    cb(null, uploadDir);
-  },
-  filename: (req, file, cb) => {
-    const uniqueName = crypto.randomBytes(16).toString('hex') + path.extname(file.originalname);
-    cb(null, uniqueName);
-  },
-});
+const { configured: cloudinaryReady, uploadToCloudinary } = require('../utils/cloudinary');
 
 const ALLOWED_DOC_TYPES = ['application/pdf', 'image/jpeg', 'image/png', 'image/gif'];
+
+// Use memory storage when Cloudinary is configured; disk otherwise (local dev)
+const motorDocsStorage = cloudinaryReady
+  ? multer.memoryStorage()
+  : multer.diskStorage({
+      destination: (req, file, cb) => {
+        const uploadDir = path.join(__dirname, '../../uploads');
+        if (!fs.existsSync(uploadDir)) fs.mkdirSync(uploadDir, { recursive: true });
+        cb(null, uploadDir);
+      },
+      filename: (req, file, cb) => {
+        const uniqueName = crypto.randomBytes(16).toString('hex') + path.extname(file.originalname);
+        cb(null, uniqueName);
+      },
+    });
 
 const uploadMotorDocs = multer({
   storage: motorDocsStorage,
@@ -175,14 +178,35 @@ router.post(
 
       const docRef = await generateRefNumber('DOC');
 
-      // Build file list for email and notes
+      // Upload files to Cloudinary if configured, otherwise keep disk reference
+      const resolveFile = async (file, label) => {
+        if (!file) return null;
+        if (cloudinaryReady && file.buffer) {
+          const { url } = await uploadToCloudinary(file.buffer, file.originalname, 'engishu/motor-docs');
+          return { name: file.originalname, size: Math.round(file.size / 1024), url };
+        }
+        return { name: file.originalname, size: Math.round(file.size / 1024), url: null };
+      };
+
+      const [logbookInfo, kraPinInfo] = await Promise.all([
+        resolveFile(logbook, 'logbook'),
+        resolveFile(kraPin, 'kra_pin'),
+      ]);
+      const idPhotoInfos = await Promise.all(idPhotos.map(f => resolveFile(f, 'id_photo')));
+
       const fileLines = [
-        ...idPhotos.map(f => `ID Photo: ${f.originalname} (${Math.round(f.size / 1024)} KB) — saved as ${f.filename}`),
-        logbook ? `Logbook: ${logbook.originalname} (${Math.round(logbook.size / 1024)} KB) — saved as ${logbook.filename}` : 'Logbook: not provided',
-        kraPin ? `KRA PIN: ${kraPin.originalname} (${Math.round(kraPin.size / 1024)} KB) — saved as ${kraPin.filename}` : 'KRA PIN: not provided',
+        ...idPhotoInfos.map(f => `ID Photo: ${f.name} (${f.size} KB)${f.url ? ` — <a href="${f.url}">view</a>` : ''}`),
+        logbookInfo ? `Logbook: ${logbookInfo.name} (${logbookInfo.size} KB)${logbookInfo.url ? ` — <a href="${logbookInfo.url}">view</a>` : ''}` : 'Logbook: not provided',
+        kraPinInfo ? `KRA PIN: ${kraPinInfo.name} (${kraPinInfo.size} KB)${kraPinInfo.url ? ` — <a href="${kraPinInfo.url}">view</a>` : ''}` : 'KRA PIN: not provided',
       ];
 
-      const notes = `Motor Document Submission [${docRef}]\nMPESA Code: ${mpesaCode}\nQuote Ref: ${quoteRef || 'N/A'}\n\n${fileLines.join('\n')}`;
+      const fileNotesLines = [
+        ...idPhotoInfos.map(f => `ID Photo: ${f.name}${f.url ? ` ${f.url}` : ''}`),
+        logbookInfo ? `Logbook: ${logbookInfo.name}${logbookInfo.url ? ` ${logbookInfo.url}` : ''}` : 'Logbook: not provided',
+        kraPinInfo ? `KRA PIN: ${kraPinInfo.name}${kraPinInfo.url ? ` ${kraPinInfo.url}` : ''}` : 'KRA PIN: not provided',
+      ];
+
+      const notes = `Motor Document Submission [${docRef}]\nMPESA Code: ${mpesaCode}\nQuote Ref: ${quoteRef || 'N/A'}\n\n${fileNotesLines.join('\n')}`;
 
       // If a quote ref was supplied, append docs note to that lead; otherwise create a new lead
       const admin = await prisma.user.findFirst({ where: { role: 'ADMIN', active: true } });
@@ -225,7 +249,7 @@ router.post(
          <p><strong>Quote Ref:</strong> ${quoteRef || 'N/A'}</p>
          <h4>Uploaded Files:</h4>
          <ul>${fileLines.map(l => `<li>${l}</li>`).join('')}</ul>
-         <p><em>Files are stored in the uploads directory. Reference: ${docRef}</em></p>`
+         <p><em>Reference: ${docRef}</em></p>`
       ).catch(err => console.error('Motor docs admin email error:', err));
 
       // Confirmation email to submitter
