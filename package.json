@@ -1,0 +1,9 @@
+{
+  "name": "engishu-crm",
+  "version": "1.0.0",
+  "description": "Engishu Insurance CRM — build script for Render deployment",
+  "scripts": {
+    "build": "cd client && npm install && npm run build",
+    "start": "cd server && npm install && npx prisma generate && node src/index.js"
+  }
+}

@@ -1,0 +1,22 @@
+services:
+  - type: web
+    name: engishu-crm
+    env: node
+    plan: free
+    buildCommand: cd client && npm install && npm run build && cd ../server && npm install && npx prisma generate
+    startCommand: cd server && node src/index.js
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 10000
+      - key: DATABASE_URL
+        sync: false
+      - key: JWT_SECRET
+        generateValue: true
+      - key: SMTP_USER
+        sync: false
+      - key: SMTP_PASS
+        sync: false
+      - key: ADMIN_EMAIL
+        value: cover@engishu.com

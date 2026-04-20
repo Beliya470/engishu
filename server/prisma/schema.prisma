@@ -1,0 +1,249 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id        String   @id @default(uuid())
+  name      String
+  email     String   @unique
+  password  String
+  role      String   @default("AGENT")
+  phone     String?
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  clients       Client[]
+  leads         Lead[]
+  policies      Policy[]
+  quotations    Quotation[]
+  documents     Document[]
+  tasksCreated  Task[]      @relation("TaskCreator")
+  tasksAssigned Task[]      @relation("TaskAssignee")
+  auditLogs     AuditLog[]
+  claims        Claim[]
+  sentMessages     Message[] @relation("MessageSender")
+  receivedMessages Message[] @relation("MessageReceiver")
+  notifications    Notification[]
+}
+
+model Client {
+  id              String   @id @default(uuid())
+  fullName        String
+  companyName     String?
+  idNumber        String?
+  kraPin          String?
+  phone           String
+  email           String?
+  physicalAddress String?
+  assignedAgent   User     @relation(fields: [agentId], references: [id])
+  agentId         String
+  dateAdded       DateTime @default(now())
+  source          String?
+  notes           String?
+  status          String   @default("ACTIVE")
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  policies    Policy[]
+  documents   Document[]
+  quotations  Quotation[]
+  tasks       Task[]
+  commissions Commission[]
+  claims      Claim[]
+}
+
+model Lead {
+  id              String    @id @default(uuid())
+  refNumber       String?   @unique
+  name            String
+  phone           String?
+  company         String?
+  email           String?
+  productInterest String?
+  source          String    @default("WALK_IN")
+  assignedAgent   User      @relation(fields: [agentId], references: [id])
+  agentId         String
+  status          String    @default("NEW")
+  followUpDate    DateTime?
+  notes           String?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+}
+
+model Policy {
+  id            String   @id @default(uuid())
+  policyNumber  String   @unique
+  client        Client   @relation(fields: [clientId], references: [id])
+  clientId      String
+  productType   String
+  underwriter   String
+  coverAmount   Float    @default(0)
+  annualPremium Float    @default(0)
+  startDate     DateTime
+  renewalDate   DateTime
+  status        String   @default("ACTIVE")
+  assignedAgent User     @relation(fields: [agentId], references: [id])
+  agentId       String
+  notes         String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  commissions Commission[]
+  payments    Payment[]
+  claims      Claim[]
+}
+
+model Quotation {
+  id                    String   @id @default(uuid())
+  clientName            String
+  client                Client?  @relation(fields: [clientId], references: [id])
+  clientId              String?
+  productType           String
+  underwriterPreference String?
+  coverDetails          String?
+  requestedBy           User     @relation(fields: [agentId], references: [id])
+  agentId               String
+  status                String   @default("PENDING")
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+}
+
+model Document {
+  id           String   @id @default(uuid())
+  documentType String
+  fileName     String
+  filePath     String
+  fileSize     Int
+  uploadDate   DateTime @default(now())
+  uploadedBy   User     @relation(fields: [userId], references: [id])
+  userId       String
+  client       Client   @relation(fields: [clientId], references: [id])
+  clientId     String
+  createdAt    DateTime @default(now())
+}
+
+model Commission {
+  id               String    @id @default(uuid())
+  policy           Policy    @relation(fields: [policyId], references: [id])
+  policyId         String
+  client           Client    @relation(fields: [clientId], references: [id])
+  clientId         String
+  underwriter      String
+  premium          Float
+  commissionRate   Float
+  commissionAmount Float
+  status           String    @default("PENDING")
+  paymentDate      DateTime?
+  notes            String?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+}
+
+model Task {
+  id            String   @id @default(uuid())
+  title         String
+  description   String?
+  createdBy     User     @relation("TaskCreator", fields: [creatorId], references: [id])
+  creatorId     String
+  assignedTo    User     @relation("TaskAssignee", fields: [assigneeId], references: [id])
+  assigneeId    String
+  dueDate       DateTime
+  relatedClient Client?  @relation(fields: [clientId], references: [id])
+  clientId      String?
+  priority      String   @default("MEDIUM")
+  status        String   @default("PENDING")
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+}
+
+model CompanySettings {
+  id                String @id @default(uuid())
+  name              String @default("Engishu Insurance Agency")
+  phone             String @default("")
+  email             String @default("cover@engishu.com")
+  address           String @default("")
+  notificationEmail String @default("cover@engishu.com")
+}
+
+// ── NEW MODELS ──
+
+model Claim {
+  id            String    @id @default(uuid())
+  claimNumber   String    @unique
+  policy        Policy    @relation(fields: [policyId], references: [id])
+  policyId      String
+  client        Client    @relation(fields: [clientId], references: [id])
+  clientId      String
+  claimType     String
+  description   String
+  incidentDate  DateTime
+  amountClaimed Float     @default(0)
+  amountSettled Float     @default(0)
+  status        String    @default("REPORTED")
+  handler       User      @relation(fields: [handlerId], references: [id])
+  handlerId     String
+  documents     String?
+  notes         String?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+}
+
+model Payment {
+  id            String    @id @default(uuid())
+  policy        Policy    @relation(fields: [policyId], references: [id])
+  policyId      String
+  amount        Float
+  paymentDate   DateTime
+  paymentMethod String
+  receiptNumber String?
+  notes         String?
+  status        String    @default("CONFIRMED")
+  createdAt     DateTime  @default(now())
+}
+
+model AuditLog {
+  id         String   @id @default(uuid())
+  user       User     @relation(fields: [userId], references: [id])
+  userId     String
+  action     String
+  entity     String
+  entityId   String?
+  details    String?
+  ipAddress  String?
+  createdAt  DateTime @default(now())
+}
+
+model RefCounter {
+  id      String @id @default(uuid())
+  prefix  String @unique
+  counter Int    @default(0)
+}
+
+model Message {
+  id         String   @id @default(uuid())
+  sender     User     @relation("MessageSender", fields: [senderId], references: [id])
+  senderId   String
+  receiver   User     @relation("MessageReceiver", fields: [receiverId], references: [id])
+  receiverId String
+  content    String
+  read       Boolean  @default(false)
+  createdAt  DateTime @default(now())
+}
+
+model Notification {
+  id        String   @id @default(uuid())
+  user      User     @relation(fields: [userId], references: [id])
+  userId    String
+  title     String
+  message   String
+  type      String   @default("INFO")
+  link      String?
+  read      Boolean  @default(false)
+  createdAt DateTime @default(now())
+}
